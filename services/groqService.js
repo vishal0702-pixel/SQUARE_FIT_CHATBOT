@@ -15,31 +15,50 @@ LANGUAGE: Always reply in the same language/mix the user uses (Hindi, Hinglish, 
 
 YOUR FLOW:
 1. User asks about properties → call searchProperties tool → show results
-2. User picks a property → call getAvailableSlots → show ONLY 3 slots
-3. User picks a slot → ask for name + email in one message
-4. You have name + email + slotId → call bookVisit → confirm booking
+2. User wants to visit a property → ask casually: "Kab aana chahte hain?"
+3. User says anything like "Saturday", "kal", "31 May", "next week" → YOU convert it to YYYY-MM-DD yourself using today's date, then IMMEDIATELY call getAvailableSlots — never ask user for a specific format
+4. getAvailableSlots returns slots → show them naturally like "Yeh slots available hain: ..."
+5. getAvailableSlots returns empty → say "Us din koi slot available nahi hai, koi aur din batayein?"
+6. User picks any slot like "pehla wala", "10 baje wala", "doosra" → call bookVisit with that exact slot_start
+7. bookVisit succeeds → "✅ Aapka site visit book ho gaya! [date aur time]"
+
+DATE CONVERSION RULES (use today's date for reference):
+- "kal" → tomorrow's date
+- "parso" → day after tomorrow
+- "Saturday" / "Shanivaar" → next Saturday
+- "Sunday" / "Ravivar" → next Sunday
+- "31 May" → 2026-05-31
+- "next week" → next Monday
+- Always convert to YYYY-MM-DD before calling getAvailableSlots
 
 STRICT RULES:
-- NEVER invent properties or slot IDs. Always use tool results exactly.
-- NEVER call bookVisit unless you have the EXACT slotId from getAvailableSlots output.
-- If searchProperties returns nothing → reply with customer_number "6266221728".
-- Keep replies SHORT and conversational. No long paragraphs.
+- Always use proper tool call format — never combine tool name and arguments in one string
+- bhk must always be a NUMBER not a string e.g. 2 not "2"
+- NEVER ask user to type date in any specific format — understand natural language
+- NEVER show slots you invented — ONLY show slots from getAvailableSlots tool result
+- NEVER ask for name, email, or phone — backend identifies user from token automatically
+- NEVER invent slot times — always use exact slot_start values from tool results
+- NEVER call bookVisit unless you have exact slot_start ISO string from getAvailableSlots tool
+- If bookVisit returns requires_auth=true → say "Pehle login karein, phir booking kar sakte hain"
+- If searchProperties returns nothing → reply with customer_number "6266221728"
+- Keep replies SHORT and conversational like a friendly assistant
 
 RESPONSE FORMAT — always return valid JSON, no markdown fences:
 {
   "message": "short friendly reply",
-  "properties": [...],         // include only when showing properties
-  "customer_number": "..."     // include only when no properties found
+  "properties": [...],
+  "slots": [...],
+  "customer_number": "..."
 }
 
 Property object shape (use exact values from tool):
-{ "id": "...", "name": "...", "price": 4500000, "price_formatted": "₹45L", "location": "...", "bhk": 3 }
+{ "id": "...", "name": "...", "price": 4500000, "price_formatted": "Rs45L", "location": "...", "bhk": 3 }
+
+Slot object shape (use exact values from tool):
+{ "id": "...", "display": "Saturday, May 31 at 10:00 AM", "slot_start": "2026-05-31T10:00:00.000Z" }
 
 When NO properties found:
-{ "message": "Sorry, [location] mein koi property nahi mili. Seedha baat karein: 6266221728", "properties": [], "customer_number": "6266221728" }
-
-For booking/slot/conversation replies (no properties to show):
-{ "message": "your reply here" }`;
+{ "message": "Sorry, [location] mein koi property nahi mili. Seedha baat karein: 6266221728", "properties": [], "customer_number": "6266221728" }`;
 
 // ─── TOOLS ────────────────────────────────────────────────────────────────────
 const TOOLS = [
@@ -64,56 +83,107 @@ const TOOLS = [
     type: "function",
     function: {
       name: "getAvailableSlots",
-      description: "Get visit slots. Call when user wants to book/visit a property.",
-      parameters: { type: "object", properties: {}, required: [] },
+      description:
+        "Get real available visit slots from the backend. " +
+        "Call ONLY when user wants to visit a property AND you have converted their date to YYYY-MM-DD.",
+      parameters: {
+        type: "object",
+        properties: {
+          property_id: {
+            type: "string",
+            description: "UUID of the property the user wants to visit (from searchProperties result)",
+          },
+          date: {
+            type: "string",
+            description: "Date in YYYY-MM-DD format — YOU convert from user's natural language",
+          },
+        },
+        required: ["property_id", "date"],
+      },
     },
   },
   {
     type: "function",
     function: {
       name: "bookVisit",
-      description: "Book a site visit. Only call when you have slotId (from getAvailableSlots), name, and email.",
+      description:
+        "Book a site visit. Only call when you have property_id AND exact slot_start ISO string from getAvailableSlots. " +
+        "Do NOT ask for name/email/phone — backend identifies user from login token automatically.",
       parameters: {
         type: "object",
         properties: {
-          slotId: { type: "string", description: "Exact slot ID from getAvailableSlots e.g. '2025-05-10-14'" },
-          name: { type: "string" },
-          email: { type: "string" },
-          phone: { type: "string" },
-          notes: { type: "string", description: "Property title and ID" },
+          property_id: {
+            type: "string",
+            description: "UUID of the property to visit",
+          },
+          slot_start: {
+            type: "string",
+            description: "Exact ISO datetime string from getAvailableSlots e.g. '2026-05-31T10:00:00.000Z'",
+          },
+          user_note: {
+            type: "string",
+            description: "Optional note from user",
+          },
         },
-        required: ["slotId", "name", "email"],
+        required: ["property_id", "slot_start"],
       },
     },
   },
 ];
 
 // ─── TOOL HANDLER ─────────────────────────────────────────────────────────────
-async function handleToolCall(toolName, toolArgs, sessionId) {
+async function handleToolCall(toolName, toolArgs, sessionId, userToken) {
   console.log(`🔧 Tool: ${toolName}`, toolArgs);
 
   if (toolName === "searchProperties") {
-    const result = await searchProperties(toolArgs);
+    const result = await searchProperties({ ...toolArgs, userToken });
     return JSON.stringify(result);
   }
 
   if (toolName === "getAvailableSlots") {
-    const slots = getAvailableSlots().slice(0, 6); // send 6, model shows 3
-    return JSON.stringify({ slots, note: "Show ONLY 3 slots to user at a time. Use exact slot IDs when booking." });
+    const { property_id, date, branch_id } = toolArgs;
+
+    if (!property_id || !date) {
+      return JSON.stringify({ error: "property_id aur date required hain." });
+    }
+
+    const slots = await getAvailableSlots({ property_id, date, branch_id, userToken });
+
+    if (!slots.length) {
+      return JSON.stringify({
+        slots: [],
+        note: "Is date pe koi slots nahi hain. User ko koi aur din try karne ko bolein.",
+      });
+    }
+
+    const limited = slots.slice(0, 6).map((s) => ({
+      id: s.id,
+      display: s.display,
+      slot_start: s.slot_start,
+      slot_end: s.slot_end,
+      available_officers: s.available_officers,
+    }));
+
+    return JSON.stringify({
+      slots: limited,
+      note: "Show ONLY 3 slots to user. Use exact slot_start ISO string when calling bookVisit.",
+    });
   }
 
   if (toolName === "bookVisit") {
-    // Validate slotId exists before hitting DB
-    const validSlots = getAvailableSlots();
-    const matchedSlot = validSlots.find((s) => s.id === toolArgs.slotId);
-    if (!matchedSlot) {
-      console.error("❌ SlotId not found:", toolArgs.slotId);
-      return JSON.stringify({
-        success: false,
-        error: `Slot ID "${toolArgs.slotId}" is invalid. Please ask user to pick a slot again.`,
-      });
+    const { property_id, slot_start, user_note } = toolArgs;
+
+    if (!property_id || !slot_start) {
+      return JSON.stringify({ success: false, error: "property_id aur slot_start required hain." });
     }
-    const result = await bookVisit({ ...toolArgs, sessionId });
+
+    const result = await bookVisit({
+      property_id,
+      slot_start,
+      user_note: user_note || null,
+      userToken,
+    });
+
     console.log("📋 Booking result:", result);
     return JSON.stringify(result);
   }
@@ -121,12 +191,10 @@ async function handleToolCall(toolName, toolArgs, sessionId) {
   return JSON.stringify({ error: "Unknown tool" });
 }
 
-// ─── EXTRACT JSON FROM LLM RESPONSE ──────────────────────────────────────────
+// ─── EXTRACT JSON ─────────────────────────────────────────────────────────────
 function extractJSON(text) {
   if (!text) return null;
-  // Strip markdown fences if present
   const cleaned = text.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
-  // Find first { ... } block
   const start = cleaned.indexOf("{");
   const end = cleaned.lastIndexOf("}");
   if (start === -1 || end === -1) return null;
@@ -138,9 +206,12 @@ function extractJSON(text) {
 }
 
 // ─── MAIN CHAT FUNCTION ───────────────────────────────────────────────────────
-export async function chat(messages, sessionId) {
+export async function chat(messages, sessionId, userToken) {
   const today = new Date().toLocaleDateString("en-US", {
-    weekday: "long", year: "numeric", month: "long", day: "numeric",
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
   });
 
   const systemMessage = {
@@ -152,7 +223,7 @@ export async function chat(messages, sessionId) {
 
   for (let i = 0; i < 6; i++) {
     const response = await groq.chat.completions.create({
-      model: "llama-3.3-70b-versatile", // ← upgraded: 8b was too small for JSON + tools
+      model: "llama-3.3-70b-versatile",
       messages: currentMessages,
       tools: TOOLS,
       tool_choice: "auto",
@@ -163,15 +234,12 @@ export async function chat(messages, sessionId) {
     const assistantMessage = choice.message;
     currentMessages.push(assistantMessage);
 
-    // No tool call → final response
     if (choice.finish_reason !== "tool_calls" || !assistantMessage.tool_calls) {
       const raw = assistantMessage.content || '{"message":"Main yahan help ke liye hoon!"}';
-      // Try to return parsed JSON string so controller can pass it cleanly
       const parsed = extractJSON(raw);
       return parsed ? JSON.stringify(parsed) : raw;
     }
 
-    // Handle tool calls
     const toolResults = [];
     for (const toolCall of assistantMessage.tool_calls) {
       const toolName = toolCall.function.name;
@@ -179,9 +247,9 @@ export async function chat(messages, sessionId) {
       try {
         toolArgs = JSON.parse(toolCall.function.arguments || "{}");
       } catch {
-        console.error("❌ Bad tool args JSON:", toolCall.function.arguments);
+        console.error("Bad tool args:", toolCall.function.arguments);
       }
-      const result = await handleToolCall(toolName, toolArgs, sessionId);
+      const result = await handleToolCall(toolName, toolArgs, sessionId, userToken);
       toolResults.push({
         role: "tool",
         tool_call_id: toolCall.id,
