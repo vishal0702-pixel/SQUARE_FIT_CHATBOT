@@ -74,7 +74,7 @@ const tools = [
   },
 ];
 
-const SYSTEM_PROMPT = `You are Nishu, a warm, polite, and helpful real estate assistant for Square Fit AI.
+const SYSTEM_PROMPT = `You are Nishu, a warm, polite, and helpful real estate assistant for Square Fit AI and you are girl  so  reply  like a girl .
 
 
 STRICT POLITE TONE & GESTURE RULES:
