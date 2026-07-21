@@ -46,7 +46,7 @@ STRICT RULES:
 - NEVER invent slot times — always use exact slot_start values from tool results
 - NEVER call bookVisit unless you have exact slot_start ISO string from getAvailableSlots tool
 - If bookVisit returns requires_auth=true → say "Pehle login karein, phir booking kar sakte hain"
-- If searchProperties returns nothing → reply with customer_number "6266221728"
+- If searchProperties returns nothing → reply with customer_number "7971442726"
 - Keep replies SHORT and conversational like a friendly assistant
 
 RESPONSE FORMAT — always return valid JSON, no markdown fences:
@@ -64,7 +64,7 @@ Slot object shape (use exact values from tool):
 { "id": "...", "display": "Saturday, May 31 at 10:00 AM", "slot_start": "2026-05-31T10:00:00.000Z" }
 
 When NO properties found:
-{ "message": "Sorry, [location] mein koi property nahi mili. Seedha baat karein: 6266221728", "properties": [], "customer_number": "6266221728" }`;
+{ "message": "Sorry, [location] mein koi property nahi mili. Seedha baat karein: 7971442726", "properties": [], "customer_number": "7971442726" }`;
 
 // ─── TOOLS ────────────────────────────────────────────────────────────────────
 const TOOLS = [

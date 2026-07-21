@@ -126,7 +126,7 @@ Slot shape (exact values from tool only):
 { "id": "...", "display": "Tuesday, Jun 3 at 9:00 AM IST", "slot_start": "2026-06-03T03:30:00.000Z" }
 
 When NO properties found:
-{ "message": "Koi property nahi mili. Seedha baat karein: 6266221728", "properties": [], "customer_number": "6266221728" }
+{ "message": "Koi property nahi mili. Seedha baat karein: 7971442726", "properties": [], "customer_number": "7971442726" }
 
  `;
 
