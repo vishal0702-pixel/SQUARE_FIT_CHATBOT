@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Secrets (API keys, Supabase keys, JWT secret)
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+logs/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
